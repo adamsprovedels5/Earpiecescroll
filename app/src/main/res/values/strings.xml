@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Earpiece Scroll</string>
+    <string name="accessibility_service_label">Earpiece Scroll Service</string>
+    <string name="accessibility_service_description">Allows the app to perform scroll gestures when you press your earpiece buttons.</string>
+    <string name="logger_title">Keycode Logger</string>
+    <string name="logger_subtitle">Press earpiece buttons. Events appear below.</string>
+    <string name="clear_log">Clear Log</string>
+    <string name="waiting_for_events">Waiting for key events…</string>
+    <string name="plug_in_hint">Plug in earpiece and press buttons.</string>
+    <string name="notification_channel_name">Earpiece Scroll Service</string>
+    <string name="notification_title">Earpiece Scroll</string>
+    <string name="notification_text">Listening for button presses</string>
+</resources>
