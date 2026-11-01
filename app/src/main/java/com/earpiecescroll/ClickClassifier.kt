@@ -1,7 +1,5 @@
 package com.earpiecescroll
 
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
 
@@ -33,33 +31,34 @@ object ClickClassifier {
 
         when (action) {
             KeyEvent.ACTION_DOWN -> {
-                // Only record the first DOWN (ignore repeats)
+                // Record the start time of the press (only on first DOWN, ignore repeats)
                 if (downTime == 0L) downTime = now
             }
 
             KeyEvent.ACTION_UP -> {
-                if (downTime == 0L) return // Spurious UP with no DOWN
+                if (downTime == 0L) return // Spurious UP
 
                 val pressDuration = now - downTime
                 downTime = 0L
 
-                // Long press: measured on UP so we get the real duration
+                // Long press detected HERE on UP — this is where we know the duration
+                // (The old code checked this inside ACTION_DOWN which was always ~0ms)
                 if (pressDuration >= LONG_PRESS_MS) {
                     clickTimes.clear()
                     onAction?.invoke(3) // Page Down
                     return
                 }
 
-                // Short click: add to the debounce window
+                // Short click: register in the debounce window
                 clickTimes.add(now)
                 clickTimes.removeAll { now - it > DEBOUNCE_MS }
 
                 when (clickTimes.size) {
-                    1 -> onAction?.invoke(1) // Single: Scroll Down
-                    2 -> onAction?.invoke(2) // Double: Scroll Up
-                    3 -> {                   // Triple: Page Up
+                    1 -> onAction?.invoke(1) // Single click → Scroll Down
+                    2 -> onAction?.invoke(2) // Double click → Scroll Up
+                    3 -> {
                         clickTimes.clear()
-                        onAction?.invoke(4)
+                        onAction?.invoke(4) // Triple click → Page Up
                     }
                 }
             }
