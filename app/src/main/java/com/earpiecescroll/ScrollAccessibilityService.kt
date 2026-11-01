@@ -2,92 +2,425 @@ package com.earpiecescroll
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.PendingIntent
+import android.content.ComponentName
+import android.content.Intent
 import android.graphics.Path
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
+import android.os.Build
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.widget.Toast
 
+/**
+ * Main background service.
+ *
+ * Responsibilities:
+ *
+ * 1. Capture supported media-button events.
+ * 2. Classify button interactions.
+ * 3. Convert actions into Accessibility scrolling.
+ * 4. Fall back to gesture scrolling when necessary.
+ */
 class ScrollAccessibilityService : AccessibilityService() {
 
+    private lateinit var mediaSession: MediaSession
+
     override fun onServiceConnected() {
+
         super.onServiceConnected()
+
         instance = this
-        ClickClassifier.onAction = { action ->
-            performScroll(action)
-        }
+
+        /*
+         * Connect the classifier to the scrolling engine.
+         */
+        ClickClassifier.onAction = ::performScroll
+
+        /*
+         * Start the media-button input path.
+         */
+        createMediaSession()
     }
 
     override fun onDestroy() {
+
         if (instance == this) {
             instance = null
         }
+
         ClickClassifier.onAction = null
+
+        MediaButtonInputRouter.reset()
+
+        if (::mediaSession.isInitialized) {
+
+            mediaSession.isActive = false
+
+            mediaSession.release()
+        }
+
         super.onDestroy()
     }
 
-    private fun performScroll(action: Int) {
-        // DEBUG TOAST: We will see this if the muscle is working!
-        val actionName = when(action) {
-            1 -> "Scroll Down"
-            2 -> "Scroll Up"
-            3 -> "Page Down (Long Press)"
-            else -> "Action $action"
-        }
-        Toast.makeText(this, "Triggered: $actionName", Toast.LENGTH_SHORT).show()
+    /**
+     * Creates a MediaSession specifically for receiving standard
+     * media-button events.
+     */
+    private fun createMediaSession() {
 
-        val root = rootInActiveWindow
-        val scrollable = findScrollable(root)
+        val receiverComponent =
+            ComponentName(
+                this,
+                MediaButtonReceiver::class.java
+            )
 
-        if (scrollable != null) {
-            val direction = when (action) {
-                1, 3 -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-                else -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        val receiverIntent =
+            Intent(Intent.ACTION_MEDIA_BUTTON)
+                .setComponent(receiverComponent)
+
+        val receiverPendingIntent =
+            PendingIntent.getBroadcast(
+                this,
+                1001,
+                receiverIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE
+            )
+
+        mediaSession =
+            MediaSession(
+                this,
+                "EarpieceScroll"
+            ).apply {
+
+                /*
+                 * Tell Android this session handles media buttons.
+                 */
+                setFlags(
+                    MediaSession.FLAG_HANDLES_MEDIA_BUTTONS
+                )
+
+                setMediaButtonReceiver(
+                    receiverPendingIntent
+                )
+
+                /*
+                 * Direct MediaSession callback.
+                 */
+                setCallback(
+                    object : MediaSession.Callback() {
+
+                        override fun onMediaButtonEvent(
+                            mediaIntent: Intent
+                        ): Boolean {
+
+                            val event =
+                                mediaIntent.getParcelableExtra<KeyEvent>(
+                                    Intent.EXTRA_KEY_EVENT
+                                ) ?: return false
+
+                            return MediaButtonInputRouter.dispatch(
+                                event,
+                                "MediaSession"
+                            )
+                        }
+                    }
+                )
+
+                /*
+                 * Advertise the media controls that the session supports.
+                 */
+                val state =
+                    PlaybackState.Builder()
+                        .setActions(
+                            PlaybackState.ACTION_PLAY or
+                                PlaybackState.ACTION_PAUSE or
+                                PlaybackState.ACTION_PLAY_PAUSE or
+                                PlaybackState.ACTION_SKIP_TO_NEXT or
+                                PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                                PlaybackState.ACTION_FAST_FORWARD or
+                                PlaybackState.ACTION_REWIND or
+                                PlaybackState.ACTION_STOP
+                        )
+                        .setState(
+                            PlaybackState.STATE_PAUSED,
+                            0L,
+                            1.0f
+                        )
+                        .build()
+
+                setPlaybackState(state)
+
+                /*
+                 * Activate the session.
+                 */
+                isActive = true
             }
-            val performed = scrollable.performAction(direction)
-            if (performed) return
+    }
+
+    /**
+     * Second input path.
+     *
+     * AccessibilityService can request key-event filtering through
+     * accessibility_service_config.xml.
+     *
+     * This allows Android to deliver supported hardware key events here
+     * on devices where that path is available.
+     */
+    override fun onKeyEvent(
+        event: KeyEvent
+    ): Boolean {
+
+        return MediaButtonInputRouter.dispatch(
+            event,
+            "Accessibility"
+        )
+    }
+
+    /**
+     * Executes the classified scroll command.
+     */
+    private fun performScroll(
+        action: Int
+    ) {
+
+        val root =
+            rootInActiveWindow
+
+        val direction =
+            when (action) {
+
+                ClickClassifier.ACTION_SCROLL_DOWN,
+                ClickClassifier.ACTION_PAGE_DOWN ->
+                    AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+
+                ClickClassifier.ACTION_SCROLL_UP,
+                ClickClassifier.ACTION_PAGE_UP ->
+                    AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+
+                else ->
+                    return
+            }
+
+        /*
+         * First attempt:
+         *
+         * Ask the active application's Accessibility tree to scroll.
+         */
+        val scrollable =
+            findBestScrollable(root)
+
+        if (
+            scrollable != null &&
+            scrollable.performAction(direction)
+        ) {
+
+            return
         }
 
+        /*
+         * Second attempt:
+         *
+         * If the app does not expose a usable accessibility scroll node,
+         * perform a physical swipe gesture.
+         */
         dispatchSwipeGesture(action)
     }
 
-    private fun dispatchSwipeGesture(action: Int) {
-        val metrics = resources.displayMetrics
-        val width = metrics.widthPixels.toFloat()
-        val height = metrics.heightPixels.toFloat()
+    /**
+     * Gesture fallback.
+     */
+    private fun dispatchSwipeGesture(
+        action: Int
+    ) {
 
-        val swipeHeight = if (action == 3 || action == 4) 0.8f else 0.5f 
+        if (
+            Build.VERSION.SDK_INT <
+            Build.VERSION_CODES.N
+        ) {
+            return
+        }
 
-        val path = Path().apply {
-            if (action == 1 || action == 3) {
-                moveTo(width / 2f, height * 0.85f)
-                lineTo(width / 2f, height * (0.85f - swipeHeight))
+        val metrics =
+            resources.displayMetrics
+
+        val width =
+            metrics.widthPixels.toFloat()
+
+        val height =
+            metrics.heightPixels.toFloat()
+
+        val isPageAction =
+            action ==
+                ClickClassifier.ACTION_PAGE_DOWN ||
+            action ==
+                ClickClassifier.ACTION_PAGE_UP
+
+        /*
+         * Page actions move farther than ordinary scrolling.
+         */
+        val distance =
+            if (isPageAction) {
+                0.72f
             } else {
-                moveTo(width / 2f, height * 0.15f)
-                lineTo(width / 2f, height * (0.15f + swipeHeight))
+                0.48f
             }
+
+        val path =
+            Path()
+
+        when (action) {
+
+            ClickClassifier.ACTION_SCROLL_DOWN,
+            ClickClassifier.ACTION_PAGE_DOWN -> {
+
+                val startY =
+                    height * 0.82f
+
+                val endY =
+                    height *
+                        (
+                            startY / height -
+                                distance
+                            ).coerceAtLeast(0.08f)
+
+                path.moveTo(
+                    width * 0.50f,
+                    startY
+                )
+
+                path.lineTo(
+                    width * 0.50f,
+                    endY
+                )
+            }
+
+            ClickClassifier.ACTION_SCROLL_UP,
+            ClickClassifier.ACTION_PAGE_UP -> {
+
+                val startY =
+                    height * 0.18f
+
+                val endY =
+                    height *
+                        (
+                            startY / height +
+                                distance
+                            ).coerceAtMost(0.92f)
+
+                path.moveTo(
+                    width * 0.50f,
+                    startY
+                )
+
+                path.lineTo(
+                    width * 0.50f,
+                    endY
+                )
+            }
+
+            else -> return
         }
 
-        val stroke = GestureDescription.StrokeDescription(path, 0L, 250L)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        dispatchGesture(gesture, null, null)
+        val stroke =
+            GestureDescription.StrokeDescription(
+                path,
+                0L,
+                260L
+            )
+
+        val gesture =
+            GestureDescription.Builder()
+                .addStroke(stroke)
+                .build()
+
+        dispatchGesture(
+            gesture,
+            null,
+            null
+        )
     }
 
-    private fun findScrollable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
-        if (node.isScrollable) return node
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val result = findScrollable(child)
-            if (result != null) return result
+    /**
+     * Finds the most useful scrollable node in the current window.
+     *
+     * Instead of taking the first scrollable node encountered, candidates
+     * are ranked by visibility, focus and child count.
+     */
+    private fun findBestScrollable(
+        root: AccessibilityNodeInfo?
+    ): AccessibilityNodeInfo? {
+
+        if (root == null) {
+            return null
         }
-        return null
+
+        val candidates =
+            mutableListOf<AccessibilityNodeInfo>()
+
+        collectScrollable(
+            root,
+            candidates
+        )
+
+        return candidates
+            .sortedWith(
+                compareByDescending<AccessibilityNodeInfo> {
+                    it.isVisibleToUser
+                }
+                    .thenByDescending {
+                        it.isFocused
+                    }
+                    .thenByDescending {
+                        it.childCount
+                    }
+            )
+            .firstOrNull()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
+    private fun collectScrollable(
+        node: AccessibilityNodeInfo,
+        output: MutableList<AccessibilityNodeInfo>
+    ) {
+
+        if (
+            node.isScrollable &&
+            node.isVisibleToUser
+        ) {
+            output += node
+        }
+
+        for (
+            index in 0 until node.childCount
+        ) {
+
+            node.getChild(index)
+                ?.let { child ->
+
+                    collectScrollable(
+                        child,
+                        output
+                    )
+                }
+        }
+    }
+
+    override fun onAccessibilityEvent(
+        event: AccessibilityEvent?
+    ) {
+        // No event processing currently required.
+    }
+
+    override fun onInterrupt() {
+        // Required by AccessibilityService.
+    }
 
     companion object {
-        var instance: ScrollAccessibilityService? = null
+
+        var instance:
+            ScrollAccessibilityService? = null
             private set
     }
 }
