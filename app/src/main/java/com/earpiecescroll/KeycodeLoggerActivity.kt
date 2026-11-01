@@ -1,11 +1,15 @@
 package com.earpiecescroll
 
+import android.content.ComponentName
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -27,6 +31,10 @@ class KeycodeLoggerActivity : AppCompatActivity() {
         scrollView = findViewById(R.id.scrollView)
         clearButton = findViewById(R.id.clearButton)
 
+        // WAKE UP THE EARS: Start the background media listener
+        val serviceIntent = Intent(this, EarbudMediaService::class.java)
+        startForegroundService(serviceIntent)
+
         clearButton.setOnClickListener {
             logEntries.clear()
             logTextView.text = ""
@@ -34,8 +42,30 @@ class KeycodeLoggerActivity : AppCompatActivity() {
 
         appendLog(getString(R.string.waiting_for_events))
         appendLog("─────────────────────────")
-        appendLog(getString(R.string.plug_in_hint))
+        
+        // CHECK THE MUSCLE: Is Accessibility on?
+        if (!isAccessibilityServiceEnabled()) {
+            appendLog("⚠️ WARNING: Accessibility Service is OFF.")
+            appendLog("Please go to Settings and turn it on.")
+            Toast.makeText(this, "Please enable Earpiece Scroll Service in Accessibility", Toast.LENGTH_LONG).show()
+            // Auto-open settings to help him
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } else {
+            appendLog("✅ Accessibility Service is ON.")
+        }
+
+        appendLog("✅ Background listener started.")
+        appendLog("Press CENTER button to test scrolling.")
         appendLog("")
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expected = ComponentName(this, ScrollAccessibilityService::class.java)
+        val enabled = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabled.split(':').any { ComponentName.unflattenFromString(it) == expected }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
