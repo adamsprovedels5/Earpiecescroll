@@ -5,14 +5,30 @@ import android.content.Context
 import android.content.Intent
 import android.view.KeyEvent
 
+/**
+ * Fallback receiver for Android ACTION_MEDIA_BUTTON broadcasts.
+ *
+ * This is one of several input paths used by the application.
+ */
 class MediaButtonReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_MEDIA_BUTTON) return
 
-        val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-            ?: return
+    override fun onReceive(
+        context: Context,
+        intent: Intent
+    ) {
 
-        // FIX: pass BOTH keyCode AND action (was missing action before)
-        ClickClassifier.onMediaKey(event.keyCode, event.action)
+        if (intent.action != Intent.ACTION_MEDIA_BUTTON) {
+            return
+        }
+
+        val event =
+            intent.getParcelableExtra<KeyEvent>(
+                Intent.EXTRA_KEY_EVENT
+            ) ?: return
+
+        MediaButtonInputRouter.dispatch(
+            event,
+            "BroadcastReceiver"
+        )
     }
 }
