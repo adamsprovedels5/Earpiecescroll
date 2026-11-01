@@ -9,11 +9,11 @@ class MediaButtonReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_MEDIA_BUTTON) return
 
-        val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-            ?: return
-
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            ClickClassifier.onMediaKey(event.keyCode)
+        val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return
+        
+        // Pass both the keycode and the action to the classifier
+        if (event.repeatCount == 0) {
+            ClickClassifier.onMediaKey(event.keyCode, event.action)
         }
     }
 }
