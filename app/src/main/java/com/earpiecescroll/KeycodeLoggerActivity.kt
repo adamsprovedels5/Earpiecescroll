@@ -7,9 +7,12 @@ import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
+import android.widget.ArrayAdapter
+import android.widget.CheckBox
+import android.widget.SeekBar
+import android.widget.Spinner
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,6 +23,7 @@ class KeycodeLoggerActivity : AppCompatActivity() {
     private lateinit var logTextView: TextView
     private lateinit var scrollView: ScrollView
     private lateinit var clearButton: Button
+    private lateinit var serviceStatus: TextView
 
     private val logEntries =
         StringBuilder()
@@ -62,6 +66,8 @@ class KeycodeLoggerActivity : AppCompatActivity() {
             logTextView.text = ""
         }
 
+        setupControls()
+
         /*
          * Receive diagnostics from the background input router.
          */
@@ -98,18 +104,6 @@ class KeycodeLoggerActivity : AppCompatActivity() {
                 "Settings → Accessibility"
             )
 
-            Toast.makeText(
-                this,
-                "Enable Earpiece Scroll Accessibility Service",
-                Toast.LENGTH_LONG
-            ).show()
-
-            startActivity(
-                Intent(
-                    Settings.ACTION_ACCESSIBILITY_SETTINGS
-                )
-            )
-
         } else {
 
             appendLog(
@@ -132,6 +126,10 @@ class KeycodeLoggerActivity : AppCompatActivity() {
         )
 
         appendLog(
+            "• HEADSETHOOK (common single-button headset)"
+        )
+
+        appendLog(
             "• NEXT"
         )
 
@@ -149,19 +147,141 @@ class KeycodeLoggerActivity : AppCompatActivity() {
 
         appendLog("")
 
-        appendLog(
-            "NOTE: Volume buttons are not treated as"
-        )
+        appendLog("Controls:")
 
-        appendLog(
-            "application-level media buttons."
-        )
+        appendLog("• Single press: scroll")
+
+        appendLog("• Double press: page")
+
+        appendLog("• Hold for 0.7 seconds: page")
+
+        appendLog("• Volume up: scroll up; volume down: scroll down")
+
+        appendLog("")
+
+        appendLog("Power button selection is blocked by Android.")
 
         appendLog("")
 
         appendLog(
             "Waiting for earpiece input..."
         )
+    }
+
+    private fun setupControls() {
+        ScrollSettings.initialize(this)
+        serviceStatus = findViewById(R.id.serviceStatus)
+        findViewById<Button>(R.id.accessibilitySettingsButton).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
+        val actionNames = listOf(
+            "Scroll down", "Scroll up", "Page down", "Page up", "Select focused item", "Back"
+        )
+        val actionValues = listOf(
+            ClickClassifier.ACTION_SCROLL_DOWN,
+            ClickClassifier.ACTION_SCROLL_UP,
+            ClickClassifier.ACTION_PAGE_DOWN,
+            ClickClassifier.ACTION_PAGE_UP,
+            ClickClassifier.ACTION_SELECT,
+            ClickClassifier.ACTION_BACK
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionNames).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        fun configureSpinner(id: Int, keyCode: Int, default: Int) {
+            val spinner = findViewById<Spinner>(id)
+            spinner.adapter = adapter
+            val selected = ScrollSettings.singleAction(this, keyCode) ?: default
+            spinner.setSelection(actionValues.indexOf(selected).coerceAtLeast(0))
+            spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+                override fun onItemSelected(
+                    parent: android.widget.AdapterView<*>?,
+                    view: android.view.View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    ScrollSettings.setSingleAction(this@KeycodeLoggerActivity, keyCode, actionValues[position])
+                }
+            }
+        }
+        configureSpinner(R.id.volumeUpAction, KeyEvent.KEYCODE_VOLUME_UP, ClickClassifier.ACTION_SCROLL_UP)
+        configureSpinner(R.id.volumeDownAction, KeyEvent.KEYCODE_VOLUME_DOWN, ClickClassifier.ACTION_SCROLL_DOWN)
+        configureSpinner(R.id.headsetAction, KeyEvent.KEYCODE_HEADSETHOOK, ClickClassifier.ACTION_SELECT)
+
+        findViewById<CheckBox>(R.id.volumeEnabled).apply {
+            isChecked = ScrollSettings.volumeKeysEnabled(this@KeycodeLoggerActivity)
+            setOnCheckedChangeListener { _, enabled ->
+                ScrollSettings.setVolumeKeysEnabled(this@KeycodeLoggerActivity, enabled)
+            }
+        }
+        findViewById<CheckBox>(R.id.useGestures).apply {
+            isChecked = ScrollSettings.useGestures(this@KeycodeLoggerActivity)
+            setOnCheckedChangeListener { _, enabled ->
+                ScrollSettings.setUseGestures(this@KeycodeLoggerActivity, enabled)
+            }
+        }
+
+        val distanceSeek = findViewById<SeekBar>(R.id.distanceSeek)
+        val distanceLabel = findViewById<TextView>(R.id.distanceLabel)
+        distanceSeek.progress = ScrollSettings.scrollDistance(this) - 20
+        fun updateDistance(value: Int) {
+            val distance = value + 20
+            distanceLabel.text = "Scroll distance: $distance% of screen (page adds 24%)"
+            ScrollSettings.setScrollDistance(this, distance)
+        }
+        updateDistance(distanceSeek.progress)
+        distanceSeek.setOnSeekBarChangeListener(seekListener(::updateDistance))
+
+        val speedSeek = findViewById<SeekBar>(R.id.speedSeek)
+        val speedLabel = findViewById<TextView>(R.id.speedLabel)
+        speedSeek.progress = ScrollSettings.gestureDuration(this) - 100
+        fun updateSpeed(value: Int) {
+            val duration = value + 100
+            speedLabel.text = "Swipe duration: ${duration}ms"
+            ScrollSettings.setGestureDuration(this, duration)
+        }
+        updateSpeed(speedSeek.progress)
+        speedSeek.setOnSeekBarChangeListener(seekListener(::updateSpeed))
+
+        val doubleSeek = findViewById<SeekBar>(R.id.doubleTapSeek)
+        val holdSeek = findViewById<SeekBar>(R.id.holdSeek)
+        val timingLabel = findViewById<TextView>(R.id.timingLabel)
+        doubleSeek.progress = ScrollSettings.doubleTapMs(this) - 180
+        holdSeek.progress = ScrollSettings.holdMs(this) - 350
+        fun updateTiming() {
+            val doubleMs = doubleSeek.progress + 180
+            val holdMs = holdSeek.progress + 350
+            timingLabel.text = "Double-tap window: ${doubleMs}ms · Hold threshold: ${holdMs}ms"
+            ScrollSettings.setDoubleTapMs(this, doubleMs)
+            ScrollSettings.setHoldMs(this, holdMs)
+        }
+        doubleSeek.setOnSeekBarChangeListener(seekListener { updateTiming() })
+        holdSeek.setOnSeekBarChangeListener(seekListener { updateTiming() })
+        updateTiming()
+        refreshServiceStatus()
+    }
+
+    private fun seekListener(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
+        override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) = onChange(progress)
+        override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+        override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+    }
+
+    private fun refreshServiceStatus() {
+        if (::serviceStatus.isInitialized) {
+            serviceStatus.text = if (isAccessibilityServiceEnabled()) {
+                "Accessibility service: ON"
+            } else {
+                "Accessibility service: OFF — enable it below to use controls outside this app"
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::serviceStatus.isInitialized) refreshServiceStatus()
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
@@ -279,6 +399,9 @@ class KeycodeLoggerActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
                 "KEYCODE_MEDIA_PLAY_PAUSE"
 
+            KeyEvent.KEYCODE_HEADSETHOOK ->
+                "KEYCODE_HEADSETHOOK"
+
             KeyEvent.KEYCODE_MEDIA_PLAY ->
                 "KEYCODE_MEDIA_PLAY"
 
@@ -311,6 +434,9 @@ class KeycodeLoggerActivity : AppCompatActivity() {
 
             KeyEvent.KEYCODE_VOLUME_MUTE ->
                 "KEYCODE_VOLUME_MUTE"
+
+            KeyEvent.KEYCODE_POWER ->
+                "KEYCODE_POWER"
 
             KeyEvent.KEYCODE_CALL ->
                 "KEYCODE_CALL"

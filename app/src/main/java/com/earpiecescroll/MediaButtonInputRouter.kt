@@ -1,5 +1,6 @@
 package com.earpiecescroll
 
+import android.content.Context
 import android.os.SystemClock
 import android.view.KeyEvent
 
@@ -16,6 +17,8 @@ import android.view.KeyEvent
  * from triggering duplicate scroll actions.
  */
 object MediaButtonInputRouter {
+
+    var applicationContext: Context? = null
 
     private const val DUPLICATE_WINDOW_MS = 250L
 

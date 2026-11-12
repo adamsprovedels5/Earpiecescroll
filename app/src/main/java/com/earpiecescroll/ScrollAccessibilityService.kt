@@ -31,6 +31,9 @@ class ScrollAccessibilityService : AccessibilityService() {
 
         super.onServiceConnected()
 
+        ScrollSettings.initialize(this)
+        MediaButtonInputRouter.applicationContext = applicationContext
+
         instance = this
 
         /*
@@ -51,6 +54,8 @@ class ScrollAccessibilityService : AccessibilityService() {
         }
 
         ClickClassifier.onAction = null
+
+        MediaButtonInputRouter.applicationContext = null
 
         MediaButtonInputRouter.reset()
 
@@ -186,6 +191,21 @@ class ScrollAccessibilityService : AccessibilityService() {
         action: Int
     ) {
 
+        if (action == ClickClassifier.ACTION_BACK) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            return
+        }
+
+        if (action == ClickClassifier.ACTION_SELECT) {
+            performSelect()
+            return
+        }
+
+        if (ScrollSettings.useGestures(this)) {
+            dispatchSwipeGesture(action)
+            return
+        }
+
         val root =
             rootInActiveWindow
 
@@ -229,6 +249,19 @@ class ScrollAccessibilityService : AccessibilityService() {
         dispatchSwipeGesture(action)
     }
 
+    private fun performSelect() {
+        val root = rootInActiveWindow ?: return
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+            ?: root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        var target: AccessibilityNodeInfo? = focused ?: root
+        while (target != null) {
+            if (target.isClickable && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                return
+            }
+            target = target.parent
+        }
+    }
+
     /**
      * Gesture fallback.
      */
@@ -261,12 +294,12 @@ class ScrollAccessibilityService : AccessibilityService() {
         /*
          * Page actions move farther than ordinary scrolling.
          */
-        val distance =
-            if (isPageAction) {
-                0.72f
-            } else {
-                0.48f
-            }
+        val configuredDistance = ScrollSettings.scrollDistance(this) / 100f
+        val distance = if (isPageAction) {
+            (configuredDistance + 0.24f).coerceAtMost(0.9f)
+        } else {
+            configuredDistance
+        }
 
         val path =
             Path()
@@ -328,7 +361,7 @@ class ScrollAccessibilityService : AccessibilityService() {
             GestureDescription.StrokeDescription(
                 path,
                 0L,
-                260L
+                ScrollSettings.gestureDuration(this).toLong()
             )
 
         val gesture =

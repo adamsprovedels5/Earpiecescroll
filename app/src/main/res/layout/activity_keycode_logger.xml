@@ -25,18 +25,133 @@
         android:textColor="@color/subtitle_gray"
         android:paddingBottom="8dp" />
 
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.62"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/serviceStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/white"
+                android:padding="4dp" />
+
+            <Button
+                android:id="@+id/accessibilitySettingsButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Open Accessibility settings" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Volume up action"
+                android:textColor="@color/white" />
+            <Spinner
+                android:id="@+id/volumeUpAction"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Volume down action"
+                android:textColor="@color/white" />
+            <Spinner
+                android:id="@+id/volumeDownAction"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Headset button single press action"
+                android:textColor="@color/white" />
+            <Spinner
+                android:id="@+id/headsetAction"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <CheckBox
+                android:id="@+id/volumeEnabled"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use volume keys for scrolling"
+                android:textColor="@color/white"
+                android:checked="true" />
+
+            <CheckBox
+                android:id="@+id/useGestures"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Use gestures for adjustable distance and speed"
+                android:textColor="@color/white" />
+
+            <TextView
+                android:id="@+id/distanceLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/white" />
+            <SeekBar
+                android:id="@+id/distanceSeek"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="65" />
+
+            <TextView
+                android:id="@+id/speedLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/white" />
+            <SeekBar
+                android:id="@+id/speedSeek"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="700" />
+
+            <TextView
+                android:id="@+id/timingLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/white" />
+            <SeekBar
+                android:id="@+id/doubleTapSeek"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="520" />
+            <SeekBar
+                android:id="@+id/holdSeek"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="1150" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Power button selection is blocked by Android. Use a headset control assigned to Select."
+                android:textColor="@color/subtitle_gray"
+                android:padding="4dp" />
+        </LinearLayout>
+    </ScrollView>
+
     <Button
         android:id="@+id/clearButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/clear_log"
-        android:layout_marginBottom="8dp" />
+        android:text="@string/clear_log" />
 
     <ScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_weight="0.38"
         android:background="@color/log_background"
         android:padding="8dp">
 

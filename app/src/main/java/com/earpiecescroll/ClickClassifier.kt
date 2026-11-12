@@ -7,17 +7,8 @@ import android.view.KeyEvent
 /**
  * Converts supported earpiece media-button events into scroll commands.
  *
- * IMPORTANT:
- *
- * This class intentionally does NOT attempt to capture:
- *
- *     KEYCODE_VOLUME_UP
- *     KEYCODE_VOLUME_DOWN
- *
- * Android handles those through the system volume/audio pipeline and they
- * cannot be reliably hijacked by an ordinary application.
- *
- * Supported inputs are standard media-button events.
+ * Standard media buttons and accessibility-filtered volume keys are routed
+ * through the same tap, double-tap and hold classifier.
  */
 object ClickClassifier {
 
@@ -25,9 +16,11 @@ object ClickClassifier {
     const val ACTION_SCROLL_UP = 2
     const val ACTION_PAGE_DOWN = 3
     const val ACTION_PAGE_UP = 4
+    const val ACTION_SELECT = 5
+    const val ACTION_BACK = 6
 
-    private const val HOLD_MS = 700L
-    private const val DOUBLE_TAP_MS = 300L
+    private const val DEFAULT_HOLD_MS = 700L
+    private const val DEFAULT_DOUBLE_TAP_MS = 300L
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -61,6 +54,11 @@ object ClickClassifier {
 
         if (!isSupported(keyCode)) {
             return false
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val context = MediaButtonInputRouter.applicationContext ?: return false
+            if (!ScrollSettings.volumeKeysEnabled(context)) return false
         }
 
         when (action) {
@@ -119,6 +117,10 @@ object ClickClassifier {
      */
     private fun scheduleHold(keyCode: Int) {
 
+        val holdMs = MediaButtonInputRouter.applicationContext
+            ?.let { ScrollSettings.holdMs(it).toLong() }
+            ?: DEFAULT_HOLD_MS
+
         cancelHold(keyCode)
 
         val runnable = Runnable {
@@ -145,7 +147,7 @@ object ClickClassifier {
 
         handler.postDelayed(
             runnable,
-            HOLD_MS
+            holdMs
         )
     }
 
@@ -163,6 +165,10 @@ object ClickClassifier {
      * to determine whether another tap follows.
      */
     private fun registerTap(keyCode: Int) {
+
+        val doubleTapMs = MediaButtonInputRouter.applicationContext
+            ?.let { ScrollSettings.doubleTapMs(it).toLong() }
+            ?: DEFAULT_DOUBLE_TAP_MS
 
         val nextCount =
             (tapCounts[keyCode] ?: 0) + 1
@@ -214,7 +220,7 @@ object ClickClassifier {
 
         handler.postDelayed(
             runnable,
-            DOUBLE_TAP_MS
+            doubleTapMs
         )
     }
 
@@ -225,11 +231,25 @@ object ClickClassifier {
         keyCode: Int
     ): Int {
 
+        MediaButtonInputRouter.applicationContext?.let { context ->
+            ScrollSettings.singleAction(context, keyCode)?.let { return it }
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
+            return ACTION_SELECT
+        }
+
         return when (keyCode) {
 
             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
             KeyEvent.KEYCODE_MEDIA_REWIND ->
                 ACTION_SCROLL_UP
+
+            KeyEvent.KEYCODE_VOLUME_UP ->
+                ACTION_SCROLL_UP
+
+            KeyEvent.KEYCODE_VOLUME_DOWN ->
+                ACTION_SCROLL_DOWN
 
             KeyEvent.KEYCODE_MEDIA_NEXT,
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD ->
@@ -255,7 +275,8 @@ object ClickClassifier {
         return when (keyCode) {
 
             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-            KeyEvent.KEYCODE_MEDIA_REWIND ->
+            KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_VOLUME_UP ->
                 ACTION_PAGE_UP
 
             else ->
@@ -273,7 +294,8 @@ object ClickClassifier {
         return when (keyCode) {
 
             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-            KeyEvent.KEYCODE_MEDIA_REWIND ->
+            KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_VOLUME_UP ->
                 ACTION_PAGE_UP
 
             else ->
@@ -293,11 +315,16 @@ object ClickClassifier {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
+            // Many wired and Bluetooth single-button headsets report
+            // their control as HEADSETHOOK instead of PLAY_PAUSE.
+            KeyEvent.KEYCODE_HEADSETHOOK,
             KeyEvent.KEYCODE_MEDIA_STOP,
             KeyEvent.KEYCODE_MEDIA_NEXT,
             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-            KeyEvent.KEYCODE_MEDIA_REWIND -> true
+            KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_VOLUME_UP,
+            KeyEvent.KEYCODE_VOLUME_DOWN -> true
 
             else -> false
         }
@@ -314,6 +341,9 @@ object ClickClassifier {
 
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
                 "PLAY_PAUSE"
+
+            KeyEvent.KEYCODE_HEADSETHOOK ->
+                "HEADSETHOOK"
 
             KeyEvent.KEYCODE_MEDIA_PLAY ->
                 "PLAY"
@@ -335,6 +365,12 @@ object ClickClassifier {
 
             KeyEvent.KEYCODE_MEDIA_REWIND ->
                 "REWIND"
+
+            KeyEvent.KEYCODE_VOLUME_UP ->
+                "VOLUME_UP"
+
+            KeyEvent.KEYCODE_VOLUME_DOWN ->
+                "VOLUME_DOWN"
 
             else ->
                 "KEY_$keyCode"
